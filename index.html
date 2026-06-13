@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Зверята — карточная головоломка</title>
+<style>
+  :root{
+    --bg-top:#bfe7ff; --bg-bot:#fdeecb;
+    --card:#fffdf6; --card-edge:#e8dcc2;
+    --ink:#4a3b2a; --accent:#ff7b54; --good:#5cc476; --bad:#e2574f;
+    --shadow:0 4px 0 rgba(74,59,42,.18), 0 10px 18px rgba(74,59,42,.15);
+    --cw:64px; --ch:90px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none;}
+  html,body{margin:0;height:100%;overflow:hidden;}
+  body{
+    font-family:"Baloo 2","Nunito","Trebuchet MS",system-ui,sans-serif;
+    background:linear-gradient(180deg,var(--bg-top),var(--bg-bot));
+    color:var(--ink); display:flex; flex-direction:column;
+  }
+
+  /* ---------- top bar ---------- */
+  #topbar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 14px 4px; flex:0 0 auto;
+  }
+  .pill{
+    background:#fff; border-radius:999px; padding:4px 14px;
+    font-weight:700; font-size:15px; box-shadow:0 2px 0 rgba(74,59,42,.12);
+  }
+  .pill small{font-weight:600; opacity:.55; margin-right:4px;}
+  #score.pulse{animation:pulse .35s ease;}
+  @keyframes pulse{50%{transform:scale(1.25); color:var(--accent);}}
+
+  /* ---------- table ---------- */
+  #table{position:relative; flex:1 1 auto; margin:6px 10px;}
+
+  /* ---------- bottom: deck / hand / discard ---------- */
+  #bottom{
+    flex:0 0 auto; display:flex; align-items:flex-end; gap:8px;
+    padding:6px 10px calc(12px + env(safe-area-inset-bottom));
+  }
+  #handWrap{flex:1; display:flex; justify-content:center; min-width:0;}
+  #hand{display:flex; justify-content:center;}
+
+  /* ---------- card ---------- */
+  .card{
+    position:absolute; width:var(--cw); height:var(--ch);
+    perspective:600px; cursor:pointer;
+    transition:left .45s cubic-bezier(.2,.8,.3,1.1), top .45s cubic-bezier(.2,.8,.3,1.1),
+               transform .25s ease, opacity .3s ease;
+  }
+  .card .inner{
+    position:absolute; inset:0; transform-style:preserve-3d;
+    transition:transform .4s ease; border-radius:10px;
+  }
+  .card.facedown .inner{transform:rotateY(180deg);}
+  .face,.back{
+    position:absolute; inset:0; backface-visibility:hidden;
+    border-radius:10px; box-shadow:var(--shadow); overflow:hidden;
+    border:2px solid var(--card-edge);
+  }
+  .face{background:var(--card); display:flex; flex-direction:column;}
+  .half{
+    flex:1; display:flex; align-items:center; justify-content:center;
+    font-size:calc(var(--cw) * .5); line-height:1;
+  }
+  .half:first-child{border-bottom:2px dashed rgba(74,59,42,.18);}
+  .back{
+    transform:rotateY(180deg);
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,.25) 0 6px, transparent 7px),
+      repeating-linear-gradient(45deg,#7fb6e8 0 10px,#6ea7da 10px 20px);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .back::after{content:"🐾"; font-size:26px; filter:drop-shadow(0 1px 0 rgba(0,0,0,.2));}
+
+  .card.open .face{border-color:#d8c79a;}
+  .card.match .face{
+    border-color:var(--good);
+    box-shadow:0 0 0 3px rgba(92,196,118,.55), var(--shadow);
+  }
+  .card.shake{animation:shake .35s ease;}
+  @keyframes shake{25%{transform:translateX(-5px) rotate(-2deg);}75%{transform:translateX(5px) rotate(2deg);}}
+  .card.fly{
+    transition:left .5s ease-in, top .5s ease-in, transform .5s ease-in, opacity .5s ease-in;
+    transform:scale(.4) rotate(25deg); opacity:0; z-index:300!important;
+  }
+
+  /* hand cards are positioned by flex, not absolute */
+  #hand .card{position:relative; margin:0 -12px; flex:0 0 auto; z-index:1;}
+  #hand .card.selected{transform:translateY(-18px); z-index:5;}
+  #hand .card.selected .face{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(255,123,84,.5), var(--shadow);
+  }
+
+  /* ---------- deck & discard piles ---------- */
+  .pile{
+    position:relative; width:var(--cw); height:var(--ch);
+    border-radius:10px; flex:0 0 auto;
+  }
+  .pile .slot{
+    position:absolute; inset:0; border-radius:10px;
+    border:2px dashed rgba(74,59,42,.3);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; opacity:.6; text-align:center; padding:4px;
+  }
+  #deckPile{cursor:pointer;}
+  #deckPile .stack{
+    position:absolute; inset:0; border-radius:10px;
+    background:repeating-linear-gradient(45deg,#7fb6e8 0 10px,#6ea7da 10px 20px);
+    border:2px solid var(--card-edge); box-shadow:var(--shadow);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  }
+  #deckPile .stack b{font-size:20px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.3);}
+  #deckPile .stack span{font-size:10px; font-weight:700; color:#eaf4ff;}
+  #deckPile .penalty{
+    position:absolute; top:-6px; right:-6px; background:var(--bad); color:#fff;
+    font-size:10px; font-weight:800; border-radius:999px; padding:2px 6px;
+    box-shadow:0 2px 0 rgba(0,0,0,.15);
+  }
+  #deckPile.disabled{opacity:.45; pointer-events:none;}
+  #discardPile .stack{
+    position:absolute; inset:0; border-radius:10px;
+    background:var(--card); border:2px solid var(--card-edge); box-shadow:var(--shadow);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  }
+  #discardPile .stack b{font-size:20px; color:var(--good);}
+  #discardPile .stack span{font-size:10px; font-weight:700; opacity:.55;}
+
+  /* ---------- toast & overlay ---------- */
+  #toast{
+    position:fixed; left:50%; top:14%; transform:translateX(-50%);
+    background:rgba(74,59,42,.9); color:#fff; font-weight:700; font-size:14px;
+    padding:8px 18px; border-radius:999px; opacity:0; pointer-events:none;
+    transition:opacity .25s ease; z-index:400; white-space:nowrap;
+  }
+  #toast.show{opacity:1;}
+
+  #overlay{
+    position:fixed; inset:0; background:rgba(74,59,42,.45);
+    display:none; align-items:center; justify-content:center; z-index:500;
+  }
+  #overlay.show{display:flex;}
+  #panel{
+    background:#fffdf6; border-radius:22px; padding:26px 30px; text-align:center;
+    box-shadow:0 8px 0 rgba(74,59,42,.2), 0 24px 40px rgba(74,59,42,.3);
+    max-width:300px; animation:pop .35s cubic-bezier(.2,.8,.3,1.3);
+  }
+  @keyframes pop{from{transform:scale(.6); opacity:0;}}
+  #panel .big{font-size:46px; line-height:1;}
+  #panel h2{margin:10px 0 4px; font-size:24px;}
+  #panel p{margin:0 0 18px; font-weight:600; opacity:.7; font-size:14px;}
+  #panel button{
+    font:inherit; font-weight:800; font-size:17px; color:#fff;
+    background:var(--accent); border:none; border-radius:999px;
+    padding:12px 30px; cursor:pointer;
+    box-shadow:0 4px 0 #d65a36;
+  }
+  #panel button:active{transform:translateY(3px); box-shadow:0 1px 0 #d65a36;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none!important; animation:none!important;}
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="pill"><small>Уровень</small><span id="level">1</span></div>
+  <div class="pill" id="score"><small>Очки</small><span id="scoreVal">0</span></div>
+  <div class="pill"><small>На столе</small><span id="tableCount">0</span></div>
+</div>
+
+<div id="table"></div>
+
+<div id="bottom">
+  <div class="pile" id="deckPile" title="Взять карту (−5 очков)">
+    <div class="slot">Колода пуста</div>
+    <div class="stack"><b id="deckCount">0</b><span>добор</span></div>
+    <div class="penalty">−5</div>
+  </div>
+  <div id="handWrap"><div id="hand"></div></div>
+  <div class="pile" id="discardPile">
+    <div class="slot">Отбой</div>
+    <div class="stack" id="discardStack" style="display:none">
+      <b id="discardCount">0</b><span>в отбое</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="overlay">
+  <div id="panel">
+    <div class="big" id="panelEmoji">🎉</div>
+    <h2 id="panelTitle">Уровень пройден!</h2>
+    <p id="panelText"></p>
+    <button id="panelBtn">Дальше</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- config ----------
+  const ANIMALS = ["🐱","🐶","🦊","🐸","🦉","🐰","🐻","🐷"];
+  const TOTAL_CARDS = 40;       // общий пул неизменен
+  const HAND_SIZE   = 5;
+  const MATCH_PTS   = 10;
+  const DRAW_PENALTY= 5;
+
+  const tableEl = document.getElementById("table");
+  const handEl  = document.getElementById("hand");
+
+  let level = 1, score = 0, streak = 0;
+  let tableCards = [];   // {id, top, bot, col, depth, el, removed}
+  let columns    = [];   // arrays of card refs (index 0 = низ стопки)
+  let hand       = [];
+  let deck       = [];
+  let discarded  = 0;
+  let selected   = null;
+  let locked     = true; // блокировка кликов во время раздачи/анимаций
+
+  // ---------- helpers ----------
+  const $ = id => document.getElementById(id);
+  const shuffle = a => { for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; };
+  const shares = (a,b) => a.top===b.top || a.top===b.bot || a.bot===b.top || a.bot===b.bot;
+
+  function toast(msg){
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(t._tm);
+    t._tm = setTimeout(()=>t.classList.remove("show"), 1400);
+  }
+
+  function setScore(v){
+    score = Math.max(0, v);
+    $("scoreVal").textContent = score;
+    const p = $("score");
+    p.classList.remove("pulse"); void p.offsetWidth; p.classList.add("pulse");
+  }
+
+  // ---------- deck / cards ----------
+  let uid = 0;
+  function makeCard(){
+    const top = ANIMALS[Math.random()*ANIMALS.length|0];
+    let bot;
+    do { bot = ANIMALS[Math.random()*ANIMALS.length|0]; } while (bot === top);
+    return { id: ++uid, top, bot };
+  }
+
+  function buildCardEl(c){
+    const el = document.createElement("div");
+    el.className = "card facedown";
+    el.innerHTML = `
+      <div class="inner">
+        <div class="face">
+          <div class="half">${c.top}</div>
+          <div class="half">${c.bot}</div>
+        </div>
+        <div class="back"></div>
+      </div>`;
+    c.el = el;
+    return el;
+  }
+
+  // ---------- layout ----------
+  function levelTableCount(L){
+    return Math.min(8 + (L-1)*3, TOTAL_CARDS - HAND_SIZE - 4); // в колоде остаётся хотя бы 4
+  }
+
+  function layoutGeometry(){
+    const cols = columns.length;
+    const W = tableEl.clientWidth, H = tableEl.clientHeight;
+    const maxDepth = Math.max(...columns.map(c=>c.length));
+    let cw = Math.min(72, (W - 12) / cols - 8);
+    cw = Math.max(44, cw);
+    const ch = cw * 1.4;
+    let dy = 26;
+    if (ch + dy*(maxDepth-1) > H - 10) dy = Math.max(14, (H - 10 - ch) / Math.max(1, maxDepth-1));
+    document.documentElement.style.setProperty("--cw", cw+"px");
+    document.documentElement.style.setProperty("--ch", ch+"px");
+    return {cols, W, cw, ch, dy};
+  }
+
+  function positionTable(animate){
+    const g = layoutGeometry();
+    columns.forEach((col, ci) => {
+      const x = (ci + .5) * (g.W / g.cols) - g.cw/2;
+      col.forEach((c, di) => {
+        c.el.style.zIndex = 10 + di;
+        c.el.style.left = x + "px";
+        c.el.style.top  = (8 + di * g.dy) + "px";
+      });
+    });
+  }
+
+  function openCardOf(col){ return col.length ? col[col.length-1] : null; }
+  function openCards(){ return columns.map(openCardOf).filter(Boolean); }
+
+  function refreshFlips(){
+    columns.forEach(col => {
+      col.forEach((c, i) => {
+        const isOpen = i === col.length - 1;
+        c.el.classList.toggle("facedown", !isOpen);
+        c.el.classList.toggle("open", isOpen);
+      });
+    });
+    $("tableCount").textContent = tableCards.filter(c=>!c.removed).length;
+  }
+
+  // ---------- dealing ----------
+  function startLevel(){
+    locked = true;
+    selected = null;
+    streak = 0;
+    tableEl.innerHTML = "";
+    handEl.innerHTML = "";
+    tableCards = []; columns = []; hand = []; deck = [];
+    discarded = 0;
+    updatePiles();
+
+    $("level").textContent = level;
+
+    // общий пул
+    const pool = [];
+    for (let i=0;i<TOTAL_CARDS;i++) pool.push(makeCard());
+    shuffle(pool);
+
+    // раскладка стола: колонки со стопками
+    const tCount = levelTableCount(level);
+    const cols = Math.min(4 + Math.ceil(level/2), 7);
+    columns = Array.from({length:cols},()=>[]);
+    for (let i=0;i<tCount;i++){
+      const c = pool.pop();
+      c.col = i % cols;
+      columns[c.col].push(c);
+      tableCards.push(c);
+    }
+
+    // рука и колода добора
+    hand = pool.splice(pool.length - HAND_SIZE, HAND_SIZE);
+    deck = pool;
+
+    // --- анимация раздачи стола ---
+    const deckRect = $("deckPile").getBoundingClientRect();
+    const tableRect = tableEl.getBoundingClientRect();
+    const startX = deckRect.left - tableRect.left;
+    const startY = deckRect.top  - tableRect.top;
+
+    tableCards.forEach(c => {
+      const el = buildCardEl(c);
+      el.style.left = startX + "px";
+      el.style.top  = startY + "px";
+      tableEl.appendChild(el);
+      el.addEventListener("click", () => onTableClick(c));
+    });
+
+    requestAnimationFrame(() => {
+      tableCards.forEach((c, i) => setTimeout(() => positionOne(c), 60 * i));
+      setTimeout(() => {
+        refreshFlips();
+        dealHand();
+      }, 60 * tableCards.length + 350);
+    });
+
+    function positionOne(){ positionTable(true); }
+    updatePiles();
+  }
+
+  function dealHand(){
+    hand.forEach((c, i) => {
+      setTimeout(() => {
+        const el = buildCardEl(c);
+        el.classList.remove("facedown");
+        el.style.transform = "translateY(40px)";
+        el.style.opacity = "0";
+        handEl.appendChild(el);
+        el.addEventListener("click", () => onHandClick(c));
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{
+          el.style.transform = ""; el.style.opacity = "";
+        }));
+      }, 100 * i);
+    });
+    setTimeout(() => { locked = false; checkEnd(); }, 100 * hand.length + 250);
+  }
+
+  // ---------- interaction ----------
+  function onHandClick(c){
+    if (locked) return;
+    if (selected === c){
+      c.el.classList.remove("selected");
+      selected = null;
+    } else {
+      if (selected) selected.el.classList.remove("selected");
+      selected = c;
+      c.el.classList.add("selected");
+    }
+    highlightMatches();
+  }
+
+  function highlightMatches(){
+    openCards().forEach(c => {
+      c.el.classList.toggle("match", !!selected && shares(selected, c));
+    });
+  }
+
+  function onTableClick(c){
+    if (locked) return;
+    const col = columns[c.col];
+    if (openCardOf(col) !== c) return;          // закрытая — недоступна
+    if (!selected){ toast("Сначала выбери карту в руке"); return; }
+
+    if (shares(selected, c)){
+      removePair(selected, c);
+    } else {
+      c.el.classList.remove("shake"); void c.el.offsetWidth;
+      c.el.classList.add("shake");
+      toast("Зверята не совпадают");
+    }
+  }
+
+  function removePair(hc, tc){
+    locked = true;
+    streak++;
+    const pts = MATCH_PTS + (streak >= 3 ? 5 : 0);
+    setScore(score + pts);
+    toast(streak >= 3 ? `Пара! +${pts} (серия ×${streak})` : `Пара! +${pts}`);
+
+    // убрать из данных
+    hand = hand.filter(x => x !== hc);
+    const col = columns[tc.col];
+    col.pop();
+    tc.removed = true;
+    selected = null;
+
+    // полёт в отбой
+    const dRect = $("discardPile").getBoundingClientRect();
+    flyAway(tc.el, tableEl, dRect);
+    flyAwayHand(hc.el, dRect);
+
+    setTimeout(() => {
+      tc.el.remove(); hc.el.remove();
+      discarded += 2;
+      refreshFlips();
+      highlightMatches();
+      updatePiles();
+      locked = false;
+      checkEnd();
+    }, 520);
+  }
+
+  function flyAway(el, container, target){
+    const cRect = container.getBoundingClientRect();
+    el.classList.add("fly");
+    el.style.left = (target.left - cRect.left) + "px";
+    el.style.top  = (target.top  - cRect.top) + "px";
+  }
+  function flyAwayHand(el, target){
+    const r = el.getBoundingClientRect();
+    el.style.position = "fixed";
+    el.style.left = r.left + "px";
+    el.style.top  = r.top + "px";
+    el.style.margin = "0";
+    document.body.appendChild(el);
+    requestAnimationFrame(()=>{
+      el.classList.add("fly");
+      el.style.left = target.left + "px";
+      el.style.top  = target.top + "px";
+    });
+  }
+
+  function drawCard(){
+    if (locked || !deck.length) return;
+    const c = deck.pop();
+    setScore(score - DRAW_PENALTY);
+    streak = 0;
+    toast(`−${DRAW_PENALTY} за добор`);
+    hand.push(c);
+    const el = buildCardEl(c);
+    el.classList.remove("facedown");
+    el.style.transform = "translateY(40px) scale(.6)";
+    el.style.opacity = "0";
+    handEl.appendChild(el);
+    el.addEventListener("click", () => onHandClick(c));
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      el.style.transform = ""; el.style.opacity = "";
+    }));
+    updatePiles();
+    setTimeout(checkEnd, 300);
+  }
+
+  function updatePiles(){
+    $("deckCount").textContent = deck.length;
+    $("deckPile").querySelector(".stack").style.display = deck.length ? "flex" : "none";
+    $("deckPile").querySelector(".penalty").style.display = deck.length ? "block" : "none";
+    $("deckPile").classList.toggle("disabled", !deck.length);
+    $("discardCount").textContent = discarded;
+    $("discardStack").style.display = discarded ? "flex" : "none";
+  }
+
+  // ---------- win / lose ----------
+  function anyMove(){
+    const opens = openCards();
+    return hand.some(h => opens.some(o => shares(h, o)));
+  }
+
+  function checkEnd(){
+    const tableLeft = tableCards.filter(c=>!c.removed).length;
+
+    if (tableLeft === 0){
+      locked = true;
+      showOverlay("🎉","Уровень пройден!",`Очки: ${score}. Дальше на столе будет больше карт.`,"Уровень "+(level+1), () => { level++; startLevel(); });
+      return;
+    }
+    if (!deck.length && !anyMove()){
+      locked = true;
+      showOverlay("😿","Карты кончились…",`Колода пуста, ходов нет. Итог: ${score} очков, уровень ${level}.`,"Заново", () => { level = 1; setScore(0); $("scoreVal").textContent = 0; score = 0; startLevel(); });
+    }
+  }
+
+  function showOverlay(emoji, title, text, btn, onClick){
+    $("panelEmoji").textContent = emoji;
+    $("panelTitle").textContent = title;
+    $("panelText").textContent = text;
+    $("panelBtn").textContent = btn;
+    $("panelBtn").onclick = () => { $("overlay").classList.remove("show"); onClick(); };
+    setTimeout(()=>$("overlay").classList.add("show"), 350);
+  }
+
+  // ---------- init ----------
+  $("deckPile").addEventListener("click", drawCard);
+  window.addEventListener("resize", () => { if (tableCards.length) { positionTable(false); } });
+
+  startLevel();
+})();
+</script>
+</body>
+</html>
