@@ -215,8 +215,8 @@
   const handEl  = document.getElementById("hand");
 
   let level = 1, score = 0, streak = 0;
-  let tableCards = [];   // {id, top, bot, col, depth, el, removed}
-  let columns    = [];   // arrays of card refs (index 0 = низ стопки)
+  let tableCards = [];   // {id, top, bot, col, row, el, removed}
+  let grid       = [];   // 2D array of card refs [row][col]
   let hand       = [];
   let deck       = [];
   let discarded  = 0;
@@ -269,83 +269,82 @@
 
   // ---------- layout ----------
   function levelTableCount(L){
-    return Math.min(8 + (L-1)*3, TOTAL_CARDS - HAND_SIZE - 4); // в колоде остаётся хотя бы 4
+    return Math.min(8 + (L-1)*3, TOTAL_CARDS - HAND_SIZE - 4);
   }
 
   function layoutGeometry(){
-    const cols = columns.length;
     const W = tableEl.clientWidth, H = tableEl.clientHeight;
-    const maxDepth = Math.max(...columns.map(c=>c.length));
-    let cw = Math.min(72, (W - 12) / cols - 8);
-    cw = Math.max(44, cw);
-    const ch = cw * 1.4;
-    let dy = 26;
-    if (ch + dy*(maxDepth-1) > H - 10) dy = Math.max(14, (H - 10 - ch) / Math.max(1, maxDepth-1));
+    const rows = grid.length, cols = grid[0].length;
+    let cw = Math.min(72, (W / cols) - 10);
+    let ch = cw * 1.4;
+    if (ch * rows > H) { ch = (H / rows) - 10; cw = ch / 1.4; }
+    
     document.documentElement.style.setProperty("--cw", cw+"px");
     document.documentElement.style.setProperty("--ch", ch+"px");
-    return {cols, W, cw, ch, dy};
+    return {cols, rows, W, H, cw, ch};
   }
 
   function positionTable(animate){
     const g = layoutGeometry();
-    columns.forEach((col, ci) => {
-      const x = (ci + .5) * (g.W / g.cols) - g.cw/2;
-      col.forEach((c, di) => {
-        c.el.style.zIndex = 10 + di;
-        c.el.style.left = x + "px";
-        c.el.style.top  = (8 + di * g.dy) + "px";
+    const cellW = g.W / g.cols, cellH = g.H / g.rows;
+    
+    grid.forEach((row, ri) => {
+      row.forEach((col, ci) => {
+        col.forEach((c, di) => {
+          const offsetX = di * 3, offsetY = di * 3;
+          c.el.style.zIndex = 10 + di;
+          c.el.style.left = (ci * cellW + (cellW - g.cw)/2 + offsetX) + "px";
+          c.el.style.top  = (ri * cellH + (cellH - g.ch)/2 + offsetY) + "px";
+        });
       });
     });
   }
 
-  function openCardOf(col){ return col.length ? col[col.length-1] : null; }
-  function openCards(){ return columns.map(openCardOf).filter(Boolean); }
+  function openCards(){ 
+    const res = [];
+    grid.forEach(r => r.forEach(c => { if(c.length) res.push(c[c.length-1]); }));
+    return res;
+  }
 
   function refreshFlips(){
-    columns.forEach(col => {
+    grid.forEach(r => r.forEach(col => {
       col.forEach((c, i) => {
         const isOpen = i === col.length - 1;
         c.el.classList.toggle("facedown", !isOpen);
         c.el.classList.toggle("open", isOpen);
       });
-    });
+    }));
     $("tableCount").textContent = tableCards.filter(c=>!c.removed).length;
   }
 
   // ---------- dealing ----------
   function startLevel(){
-    locked = true;
-    selected = null;
-    streak = 0;
-    tableEl.innerHTML = "";
-    handEl.innerHTML = "";
-    tableCards = []; columns = []; hand = []; deck = [];
-    discarded = 0;
-    updatePiles();
+    locked = true; selected = null; streak = 0;
+    tableEl.innerHTML = ""; handEl.innerHTML = "";
+    tableCards = []; grid = []; hand = []; deck = []; discarded = 0;
+    updatePiles(); $("level").textContent = level;
 
-    $("level").textContent = level;
-
-    // общий пул
     const pool = [];
     for (let i=0;i<TOTAL_CARDS;i++) pool.push(makeCard());
     shuffle(pool);
 
-    // раскладка стола: колонки со стопками
     const tCount = levelTableCount(level);
-    const cols = Math.min(4 + Math.ceil(level/2), 7);
-    columns = Array.from({length:cols},()=>[]);
+    const cols = level > 4 ? 4 : 3;
+    const rows = Math.ceil(tCount / (cols * 2)); // распределяем на стопки 
+    grid = Array.from({length:rows}, ()=>Array.from({length:cols}, ()=>[]));
+    
     for (let i=0;i<tCount;i++){
       const c = pool.pop();
-      c.col = i % cols;
-      columns[c.col].push(c);
+      const r = (i % (rows * cols)) / cols | 0;
+      const cl = i % cols;
+      c.gridPos = {r, cl};
+      grid[r][cl].push(c);
       tableCards.push(c);
     }
 
-    // рука и колода добора
     hand = pool.splice(pool.length - HAND_SIZE, HAND_SIZE);
     deck = pool;
 
-    // --- анимация раздачи стола ---
     const deckRect = $("deckPile").getBoundingClientRect();
     const tableRect = tableEl.getBoundingClientRect();
     const startX = deckRect.left - tableRect.left;
@@ -353,21 +352,15 @@
 
     tableCards.forEach(c => {
       const el = buildCardEl(c);
-      el.style.left = startX + "px";
-      el.style.top  = startY + "px";
+      el.style.left = startX + "px"; el.style.top = startY + "px";
       tableEl.appendChild(el);
       el.addEventListener("click", () => onTableClick(c));
     });
 
     requestAnimationFrame(() => {
-      tableCards.forEach((c, i) => setTimeout(() => positionOne(c), 60 * i));
-      setTimeout(() => {
-        refreshFlips();
-        dealHand();
-      }, 60 * tableCards.length + 350);
+      tableCards.forEach((c, i) => setTimeout(() => positionTable(true), 40 * i));
+      setTimeout(() => { refreshFlips(); dealHand(); }, 40 * tableCards.length + 350);
     });
-
-    function positionOne(){ positionTable(true); }
     updatePiles();
   }
 
@@ -388,68 +381,41 @@
     setTimeout(() => { locked = false; checkEnd(); }, 100 * hand.length + 250);
   }
 
-  // ---------- interaction ----------
   function onHandClick(c){
     if (locked) return;
-    if (selected === c){
-      c.el.classList.remove("selected");
-      selected = null;
-    } else {
-      if (selected) selected.el.classList.remove("selected");
-      selected = c;
-      c.el.classList.add("selected");
-    }
+    if (selected === c) { c.el.classList.remove("selected"); selected = null; }
+    else { if (selected) selected.el.classList.remove("selected"); selected = c; c.el.classList.add("selected"); }
     highlightMatches();
   }
 
   function highlightMatches(){
-    openCards().forEach(c => {
-      c.el.classList.toggle("match", !!selected && shares(selected, c));
-    });
+    openCards().forEach(c => c.el.classList.toggle("match", !!selected && shares(selected, c)));
   }
 
   function onTableClick(c){
     if (locked) return;
-    const col = columns[c.col];
-    if (openCardOf(col) !== c) return;          // закрытая — недоступна
+    const col = grid[c.gridPos.r][c.gridPos.cl];
+    if (col[col.length-1] !== c) return;
     if (!selected){ toast("Сначала выбери карту в руке"); return; }
 
-    if (shares(selected, c)){
-      removePair(selected, c);
-    } else {
-      c.el.classList.remove("shake"); void c.el.offsetWidth;
-      c.el.classList.add("shake");
-      toast("Зверята не совпадают");
-    }
+    if (shares(selected, c)) removePair(selected, c);
+    else { c.el.classList.remove("shake"); void c.el.offsetWidth; c.el.classList.add("shake"); toast("Зверята не совпадают"); }
   }
 
   function removePair(hc, tc){
-    locked = true;
-    streak++;
+    locked = true; streak++;
     const pts = MATCH_PTS + (streak >= 3 ? 5 : 0);
     setScore(score + pts);
     toast(streak >= 3 ? `Пара! +${pts} (серия ×${streak})` : `Пара! +${pts}`);
-
-    // убрать из данных
     hand = hand.filter(x => x !== hc);
-    const col = columns[tc.col];
-    col.pop();
-    tc.removed = true;
-    selected = null;
-
-    // полёт в отбой
+    grid[tc.gridPos.r][tc.gridPos.cl].pop();
+    tc.removed = true; selected = null;
     const dRect = $("discardPile").getBoundingClientRect();
-    flyAway(tc.el, tableEl, dRect);
-    flyAwayHand(hc.el, dRect);
-
+    flyAway(tc.el, tableEl, dRect); flyAwayHand(hc.el, dRect);
     setTimeout(() => {
-      tc.el.remove(); hc.el.remove();
-      discarded += 2;
-      refreshFlips();
-      highlightMatches();
-      updatePiles();
-      locked = false;
-      checkEnd();
+      tc.el.remove(); hc.el.remove(); discarded += 2;
+      refreshFlips(); highlightMatches(); updatePiles();
+      locked = false; checkEnd();
     }, 520);
   }
 
@@ -461,36 +427,20 @@
   }
   function flyAwayHand(el, target){
     const r = el.getBoundingClientRect();
-    el.style.position = "fixed";
-    el.style.left = r.left + "px";
-    el.style.top  = r.top + "px";
-    el.style.margin = "0";
+    el.style.position = "fixed"; el.style.left = r.left + "px"; el.style.top = r.top + "px"; el.style.margin = "0";
     document.body.appendChild(el);
-    requestAnimationFrame(()=>{
-      el.classList.add("fly");
-      el.style.left = target.left + "px";
-      el.style.top  = target.top + "px";
-    });
+    requestAnimationFrame(()=>{ el.classList.add("fly"); el.style.left = target.left + "px"; el.style.top = target.top + "px"; });
   }
 
   function drawCard(){
     if (locked || !deck.length) return;
-    const c = deck.pop();
-    setScore(score - DRAW_PENALTY);
-    streak = 0;
-    toast(`−${DRAW_PENALTY} за добор`);
-    hand.push(c);
+    const c = deck.pop(); setScore(score - DRAW_PENALTY); streak = 0;
+    toast(`−${DRAW_PENALTY} за добор`); hand.push(c);
     const el = buildCardEl(c);
-    el.classList.remove("facedown");
-    el.style.transform = "translateY(40px) scale(.6)";
-    el.style.opacity = "0";
-    handEl.appendChild(el);
-    el.addEventListener("click", () => onHandClick(c));
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      el.style.transform = ""; el.style.opacity = "";
-    }));
-    updatePiles();
-    setTimeout(checkEnd, 300);
+    el.classList.remove("facedown"); el.style.transform = "translateY(40px) scale(.6)"; el.style.opacity = "0";
+    handEl.appendChild(el); el.addEventListener("click", () => onHandClick(c));
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ el.style.transform = ""; el.style.opacity = ""; }));
+    updatePiles(); setTimeout(checkEnd, 300);
   }
 
   function updatePiles(){
@@ -502,39 +452,21 @@
     $("discardStack").style.display = discarded ? "flex" : "none";
   }
 
-  // ---------- win / lose ----------
-  function anyMove(){
-    const opens = openCards();
-    return hand.some(h => opens.some(o => shares(h, o)));
-  }
-
+  function anyMove(){ const opens = openCards(); return hand.some(h => opens.some(o => shares(h, o))); }
   function checkEnd(){
     const tableLeft = tableCards.filter(c=>!c.removed).length;
-
-    if (tableLeft === 0){
-      locked = true;
-      showOverlay("🎉","Уровень пройден!",`Очки: ${score}. Дальше на столе будет больше карт.`,"Уровень "+(level+1), () => { level++; startLevel(); });
-      return;
-    }
-    if (!deck.length && !anyMove()){
-      locked = true;
-      showOverlay("😿","Карты кончились…",`Колода пуста, ходов нет. Итог: ${score} очков, уровень ${level}.`,"Заново", () => { level = 1; setScore(0); $("scoreVal").textContent = 0; score = 0; startLevel(); });
-    }
+    if (tableLeft === 0){ locked = true; showOverlay("🎉","Уровень пройден!",`Очки: ${score}.`,"Уровень "+(level+1), () => { level++; startLevel(); }); return; }
+    if (!deck.length && !anyMove()){ locked = true; showOverlay("😿","Карты кончились…",`Итог: ${score} очков.`,"Заново", () => { level = 1; setScore(0); startLevel(); }); }
   }
 
   function showOverlay(emoji, title, text, btn, onClick){
-    $("panelEmoji").textContent = emoji;
-    $("panelTitle").textContent = title;
-    $("panelText").textContent = text;
-    $("panelBtn").textContent = btn;
+    $("panelEmoji").textContent = emoji; $("panelTitle").textContent = title; $("panelText").textContent = text; $("panelBtn").textContent = btn;
     $("panelBtn").onclick = () => { $("overlay").classList.remove("show"); onClick(); };
     setTimeout(()=>$("overlay").classList.add("show"), 350);
   }
 
-  // ---------- init ----------
   $("deckPile").addEventListener("click", drawCard);
-  window.addEventListener("resize", () => { if (tableCards.length) { positionTable(false); } });
-
+  window.addEventListener("resize", () => { if (tableCards.length) positionTable(false); });
   startLevel();
 })();
 </script>
