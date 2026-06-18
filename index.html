@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Зверята — карточная головоломка</title>
+<title>Animals — Card Puzzle</title>
 <style>
   :root{
     --bg-top:#bfe7ff; --bg-bot:#fdeecb;
@@ -169,24 +169,24 @@
 <body>
 
 <div id="topbar">
-  <div class="pill"><small>Уровень</small><span id="level">1</span></div>
-  <div class="pill" id="score"><small>Очки</small><span id="scoreVal">0</span></div>
-  <div class="pill"><small>На столе</small><span id="tableCount">0</span></div>
+  <div class="pill"><small>Level</small><span id="level">1</span></div>
+  <div class="pill" id="score"><small>Score</small><span id="scoreVal">0</span></div>
+  <div class="pill"><small>On Table</small><span id="tableCount">0</span></div>
 </div>
 
 <div id="table"></div>
 
 <div id="bottom">
-  <div class="pile" id="deckPile" title="Взять карту (−5 очков)">
-    <div class="slot">Колода пуста</div>
-    <div class="stack"><b id="deckCount">0</b><span>добор</span></div>
+  <div class="pile" id="deckPile" title="Draw card (−5 pts)">
+    <div class="slot">Empty deck</div>
+    <div class="stack"><b id="deckCount">0</b><span>draw</span></div>
     <div class="penalty">−5</div>
   </div>
   <div id="handWrap"><div id="hand"></div></div>
   <div class="pile" id="discardPile">
-    <div class="slot">Отбой</div>
+    <div class="slot">Discard</div>
     <div class="stack" id="discardStack" style="display:none">
-      <b id="discardCount">0</b><span>в отбое</span>
+      <b id="discardCount">0</b><span>discarded</span>
     </div>
   </div>
 </div>
@@ -196,9 +196,9 @@
 <div id="overlay">
   <div id="panel">
     <div class="big" id="panelEmoji">🎉</div>
-    <h2 id="panelTitle">Уровень пройден!</h2>
+    <h2 id="panelTitle">Level Clear!</h2>
     <p id="panelText"></p>
-    <button id="panelBtn">Дальше</button>
+    <button id="panelBtn">Next</button>
   </div>
 </div>
 
@@ -206,7 +206,7 @@
 (() => {
   // ---------- config ----------
   const ANIMALS = ["🐱","🐶","🦊","🐸","🦉","🐰","🐻","🐷"];
-  const TOTAL_CARDS = 40;       // общий пул неизменен
+  const TOTAL_CARDS = 40;       // pool size
   const HAND_SIZE   = 5;
   const MATCH_PTS   = 10;
   const DRAW_PENALTY= 5;
@@ -221,7 +221,7 @@
   let deck       = [];
   let discarded  = 0;
   let selected   = null;
-  let locked     = true; // блокировка кликов во время раздачи/анимаций
+  let locked     = true; // blocking clicks during animations
 
   // ---------- helpers ----------
   const $ = id => document.getElementById(id);
@@ -330,7 +330,7 @@
 
     const tCount = levelTableCount(level);
     const cols = level > 4 ? 4 : 3;
-    const rows = Math.ceil(tCount / (cols * 2)); // распределяем на стопки 
+    const rows = Math.ceil(tCount / (cols * 2)); 
     grid = Array.from({length:rows}, ()=>Array.from({length:cols}, ()=>[]));
     
     for (let i=0;i<tCount;i++){
@@ -396,17 +396,17 @@
     if (locked) return;
     const col = grid[c.gridPos.r][c.gridPos.cl];
     if (col[col.length-1] !== c) return;
-    if (!selected){ toast("Сначала выбери карту в руке"); return; }
+    if (!selected){ toast("Select a card in your hand first"); return; }
 
     if (shares(selected, c)) removePair(selected, c);
-    else { c.el.classList.remove("shake"); void c.el.offsetWidth; c.el.classList.add("shake"); toast("Зверята не совпадают"); }
+    else { c.el.classList.remove("shake"); void c.el.offsetWidth; c.el.classList.add("shake"); toast("Animals don't match"); }
   }
 
   function removePair(hc, tc){
     locked = true; streak++;
     const pts = MATCH_PTS + (streak >= 3 ? 5 : 0);
     setScore(score + pts);
-    toast(streak >= 3 ? `Пара! +${pts} (серия ×${streak})` : `Пара! +${pts}`);
+    toast(streak >= 3 ? `Match! +${pts} (streak ×${streak})` : `Match! +${pts}`);
     hand = hand.filter(x => x !== hc);
     grid[tc.gridPos.r][tc.gridPos.cl].pop();
     tc.removed = true; selected = null;
@@ -439,7 +439,7 @@
   function drawCard(){
     if (locked || !deck.length) return;
     const c = deck.pop(); setScore(score - DRAW_PENALTY); streak = 0;
-    toast(`−${DRAW_PENALTY} за добор`); hand.push(c);
+    toast(`−${DRAW_PENALTY} for drawing`); hand.push(c);
     const el = buildCardEl(c);
     el.classList.remove("facedown"); el.style.transform = "translateY(40px) scale(.6)"; el.style.opacity = "0";
     handEl.appendChild(el); el.addEventListener("click", () => onHandClick(c));
@@ -459,8 +459,8 @@
   function anyMove(){ const opens = openCards(); return hand.some(h => opens.some(o => shares(h, o))); }
   function checkEnd(){
     const tableLeft = tableCards.filter(c=>!c.removed).length;
-    if (tableLeft === 0){ locked = true; showOverlay("🎉","Уровень пройден!",`Очки: ${score}.`,"Уровень "+(level+1), () => { level++; startLevel(); }); return; }
-    if (!deck.length && !anyMove()){ locked = true; showOverlay("😿","Карты кончились…",`Итог: ${score} очков.`,"Заново", () => { level = 1; setScore(0); startLevel(); }); }
+    if (tableLeft === 0){ locked = true; showOverlay("🎉","Level Clear!",`Score: ${score}.`,"Level "+(level+1), () => { level++; startLevel(); }); return; }
+    if (!deck.length && !anyMove()){ locked = true; showOverlay("😿","Game Over…",`Total: ${score} points.`,"Restart", () => { level = 1; setScore(0); startLevel(); }); }
   }
 
   function showOverlay(emoji, title, text, btn, onClick){
